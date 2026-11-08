@@ -14,7 +14,6 @@ interface StreamChunk {
 }
 
 const MAX_CONTEXT_LENGTH = 4000;
-const DEFAULT_TEMPERATURE = 0.7;
 
 export class LLMClient {
   private readonly webContents: WebContents;
@@ -183,7 +182,6 @@ export class LLMClient {
       const result = await streamText({
         model: this.model,
         messages,
-        temperature: DEFAULT_TEMPERATURE,
         maxRetries: 3,
         abortSignal: undefined, // Could add abort controller for cancellation
       });
