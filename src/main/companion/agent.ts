@@ -10,7 +10,7 @@ import {
   type ModelMessage,
   type ToolSet,
 } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import type { Window } from "../Window";
@@ -474,15 +474,25 @@ export class Agent {
 }
 
 function createModel(): LanguageModel | null {
+  // Same variables Claude Code uses, so a gateway/proxy setup works unchanged
+  const anthropicKey =
+    process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
   const provider = process.env.LLM_PROVIDER?.toLowerCase();
-  if (provider === "openai" || (!provider && !process.env.ANTHROPIC_API_KEY)) {
+
+  if (provider === "openai" || (!provider && !anthropicKey)) {
     return process.env.OPENAI_API_KEY
       ? openai(process.env.LLM_MODEL || "gpt-5")
       : null;
   }
-  return process.env.ANTHROPIC_API_KEY
-    ? anthropic(process.env.LLM_MODEL || "claude-sonnet-5-5")
-    : null;
+  if (!anthropicKey) return null;
+
+  const baseURL = process.env.ANTHROPIC_BASE_URL?.replace(/\/+$/, "");
+  const anthropic = createAnthropic({
+    apiKey: anthropicKey,
+    // The SDK expects the /v1 prefix; ANTHROPIC_BASE_URL conventionally omits it
+    baseURL: baseURL ? `${baseURL}/v1` : undefined,
+  });
+  return anthropic(process.env.LLM_MODEL || "claude-sonnet-5-5");
 }
 
 const delay = (ms: number): Promise<void> =>
