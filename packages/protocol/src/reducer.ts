@@ -6,11 +6,7 @@ import type {
   TimelineItem,
 } from "./messages";
 
-export const initialState: AgentState = {
-  tasks: {},
-  order: [],
-  activeTaskId: null,
-};
+export const initialState: AgentState = { tasks: {}, order: [] };
 
 export const isTerminal = (status: TaskStatus): boolean =>
   status === "done" || status === "failed" || status === "cancelled";
@@ -28,7 +24,6 @@ export function reduce(state: AgentState, event: AgentEvent): AgentState {
     return {
       tasks: { ...state.tasks, [task.id]: task },
       order: [task.id, ...state.order.filter((id) => id !== task.id)],
-      activeTaskId: task.id,
     };
   }
 
@@ -114,19 +109,12 @@ function withStatus(
   task: Task,
   status: TaskStatus,
 ): AgentState {
-  const terminal = isTerminal(status);
-  const next = withTask(state, {
+  return withTask(state, {
     ...task,
     status,
     // A finished task can't still be waiting on the user
-    pendingApproval: terminal ? null : task.pendingApproval,
+    pendingApproval: isTerminal(status) ? null : task.pendingApproval,
   });
-  if (terminal) {
-    return next.activeTaskId === task.id
-      ? { ...next, activeTaskId: null }
-      : next;
-  }
-  return { ...next, activeTaskId: task.id };
 }
 
 function upsert(timeline: TimelineItem[], item: TimelineItem): TimelineItem[] {

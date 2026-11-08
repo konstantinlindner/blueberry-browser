@@ -11,9 +11,16 @@ interface Props {
   onSend: (text: string) => boolean | void | Promise<unknown>;
   disabled?: boolean;
   initialText?: string;
+  autoFocus?: boolean;
 }
 
-export function Composer({ placeholder, onSend, disabled = false, initialText = '' }: Props) {
+export function Composer({
+  placeholder,
+  onSend,
+  disabled = false,
+  initialText = '',
+  autoFocus = false,
+}: Props) {
   const theme = useTheme();
   const [text, setText] = useState(initialText);
   const [sending, setSending] = useState(false);
@@ -42,6 +49,7 @@ export function Composer({ placeholder, onSend, disabled = false, initialText = 
         placeholderTextColor={theme.textSecondary}
         style={[styles.input, { color: theme.text }]}
         multiline
+        autoFocus={autoFocus}
         editable={!sending}
         submitBehavior="submit"
         onSubmitEditing={submit}

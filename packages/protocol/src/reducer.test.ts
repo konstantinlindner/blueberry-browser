@@ -14,7 +14,7 @@ const created: AgentEvent = {
 };
 
 describe("reduce", () => {
-  it("creates a running task, newest first, and marks it active", () => {
+  it("creates running tasks, newest first, that can run side by side", () => {
     const state = run([
       created,
       {
@@ -23,8 +23,8 @@ describe("reduce", () => {
       },
     ]);
     expect(state.order).toEqual(["t2", "t1"]);
-    expect(state.activeTaskId).toBe("t2");
     expect(state.tasks.t1.status).toBe("running");
+    expect(state.tasks.t2.status).toBe("running");
   });
 
   it("upserts steps by id so start and finish become one timeline item", () => {
@@ -88,7 +88,7 @@ describe("reduce", () => {
     ]);
   });
 
-  it("finishing clears the active task and any pending approval", () => {
+  it("finishing clears any pending approval", () => {
     const state = run([
       created,
       {
@@ -98,7 +98,6 @@ describe("reduce", () => {
       },
       { kind: "task.finished", taskId: "t1", summary: "Added to cart" },
     ]);
-    expect(state.activeTaskId).toBeNull();
     expect(state.tasks.t1).toMatchObject({
       status: "done",
       summary: "Added to cart",
@@ -106,13 +105,13 @@ describe("reduce", () => {
     });
   });
 
-  it("a follow-up makes a finished task active again", () => {
+  it("a follow-up puts a finished task back to running", () => {
     const state = run([
       created,
       { kind: "task.finished", taskId: "t1", summary: "done" },
       { kind: "task.status", taskId: "t1", status: "running" },
     ]);
-    expect(state.activeTaskId).toBe("t1");
+    expect(state.tasks.t1.status).toBe("running");
   });
 
   it("ignores events for unknown tasks", () => {
@@ -146,7 +145,11 @@ describe("parsing", () => {
     expect(parseClientMessage("{nope").ok).toBe(false);
     expect(
       parseServerMessage(
-        JSON.stringify({ type: "snapshot", state: initialState }),
+        JSON.stringify({
+          type: "snapshot",
+          state: initialState,
+          desktop: { name: "MacBook" },
+        }),
       ).ok,
     ).toBe(true);
   });

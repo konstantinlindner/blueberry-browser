@@ -1,10 +1,12 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ChatProvider } from './contexts/ChatContext'
 import { Chat } from './components/Chat'
+import { CompanionPanel } from './components/CompanionPanel'
 import { useDarkMode } from '@common/hooks/useDarkMode'
 
 const SidebarContent: React.FC = () => {
     const { isDarkMode } = useDarkMode()
+    const [showPairing, setShowPairing] = useState(false)
 
     // Apply dark mode class to the document
     useEffect(() => {
@@ -15,9 +17,12 @@ const SidebarContent: React.FC = () => {
         }
     }, [isDarkMode])
 
+    // The toolbar's phone button asks the sidebar to show the pairing code
+    useEffect(() => window.sidebarAPI.companion.onShowPairing(() => setShowPairing(true)), [])
+
     return (
         <div className="h-screen flex flex-col bg-background border-l border-border">
-            <Chat />
+            {showPairing ? <CompanionPanel onClose={() => setShowPairing(false)} /> : <Chat />}
         </div>
     )
 }
@@ -29,4 +34,3 @@ export const SidebarApp: React.FC = () => {
         </ChatProvider>
     )
 }
-

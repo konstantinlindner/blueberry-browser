@@ -16,6 +16,7 @@ import type { CompanionStore } from "./store";
 import * as page from "./pageScripts";
 
 const MAX_STEPS = 30;
+const MAX_CONCURRENT_TASKS = 4;
 const LOAD_TIMEOUT_MS = 10_000;
 const DEFAULT_START_URL = "https://www.google.com";
 
@@ -33,6 +34,7 @@ How to work:
 - When done, call finish with a short summary of what you did and the result.`;
 
 interface Approval {
+  taskId: string;
   resolve: (answer: { approved: boolean; note?: string }) => void;
 }
 
@@ -45,8 +47,9 @@ interface Session {
   inbox: string[];
 }
 
+// Runs any number of tasks side by side, each in its own tab
 export class Agent {
-  private session: Session | null = null;
+  private sessions = new Map<string, Session>();
   private approvals = new Map<string, Approval>();
   private readonly model: LanguageModel | null = createModel()?.model ?? null;
 
@@ -55,65 +58,73 @@ export class Agent {
     private readonly store: CompanionStore,
   ) {}
 
-  get tab(): Tab | null {
-    const tab = this.session?.tab;
-    return tab && !tab.webContents.isDestroyed() ? tab : null;
+  // Tabs of tasks that are working right now, for live frames
+  runningTabs(): { taskId: string; tab: Tab }[] {
+    return [...this.sessions.values()]
+      .filter((session) => session.abort !== null && isAlive(session.tab))
+      .map(({ taskId, tab }) => ({ taskId, tab }));
   }
 
-  get isRunning(): boolean {
-    return this.session?.abort != null;
+  tabFor(taskId: string): Tab | null {
+    const tab = this.sessions.get(taskId)?.tab;
+    return tab && isAlive(tab) ? tab : null;
   }
 
   start(prompt: string, startUrl?: string): void {
     if (!this.model)
       throw new Error("No LLM API key configured on the desktop (.env).");
-    if (this.isRunning)
-      throw new Error("The agent is already working on a task.");
+    if (this.runningTabs().length >= MAX_CONCURRENT_TASKS)
+      throw new Error(
+        `Blueberry can run ${MAX_CONCURRENT_TASKS} tasks at once. Wait for one to finish.`,
+      );
 
-    const tab = this.openTab(startUrl ?? DEFAULT_START_URL);
     const taskId = randomUUID();
-    this.session = {
+    const session: Session = {
       taskId,
-      tab,
+      tab: this.openTab(startUrl ?? DEFAULT_START_URL),
       messages: [{ role: "user", content: prompt }],
       abort: null,
       inbox: [],
     };
+    this.sessions.set(taskId, session);
     this.store.emit({
       kind: "task.created",
       task: { id: taskId, prompt, createdAt: Date.now() },
     });
-    void this.run();
+    void this.run(session);
   }
 
   message(taskId: string, text: string): void {
     const session = this.requireSession(taskId);
     this.store.emit({ kind: "user.message", taskId, id: randomUUID(), text });
 
-    if (this.isRunning) {
+    if (session.abort) {
       session.inbox.push(text);
       return;
     }
     // Follow-up on a finished task: continue the same conversation in the same tab
-    if (!this.tab) session.tab = this.openTab(DEFAULT_START_URL);
+    if (!isAlive(session.tab)) session.tab = this.openTab(DEFAULT_START_URL);
     session.messages.push({ role: "user", content: text });
     this.store.emit({ kind: "task.status", taskId, status: "running" });
-    void this.run();
+    void this.run(session);
   }
 
   cancel(taskId: string): void {
     const session = this.requireSession(taskId);
     session.abort?.abort();
-    this.resolveAllApprovals({ approved: false, note: "Task cancelled" });
+    for (const [id, approval] of this.approvals) {
+      if (approval.taskId === taskId)
+        this.respondApproval(id, false, "Task cancelled");
+    }
   }
 
   respondApproval(approvalId: string, approved: boolean, note?: string): void {
     const approval = this.approvals.get(approvalId);
-    if (!approval || !this.session) return;
+    if (!approval) return;
     this.approvals.delete(approvalId);
     this.store.emit({
       kind: "approval.resolved",
-      taskId: this.session.taskId,
+      taskId: approval.taskId,
       approvalId,
       approved,
     });
@@ -124,8 +135,7 @@ export class Agent {
   // Loop
   // ---------------------------------------------------------------------------
 
-  private async run(): Promise<void> {
-    const session = this.session!;
+  private async run(session: Session): Promise<void> {
     const { taskId } = session;
     const abort = new AbortController();
     session.abort = abort;
@@ -185,7 +195,7 @@ export class Agent {
         role: "user",
         content: session.inbox.splice(0).join("\n"),
       });
-      return this.run();
+      return this.run(session);
     }
 
     this.store.emit({
@@ -242,11 +252,13 @@ export class Agent {
       }
     };
 
-    const run = async <T>(script: string): Promise<T> => {
-      const tab = this.tab;
-      if (!tab) throw new Error("The agent's tab was closed.");
-      return tab.runJs(script) as Promise<T>;
+    const tab = (): Tab => {
+      if (!isAlive(session.tab)) throw new Error("The agent's tab was closed.");
+      return session.tab;
     };
+
+    const run = async <T>(script: string): Promise<T> =>
+      tab().runJs(script) as Promise<T>;
 
     const act = async (script: string): Promise<page.ElementResult> => {
       const out = await run<page.ElementResult>(script);
@@ -276,9 +288,11 @@ export class Agent {
         inputSchema: z.object({ url: z.string().describe("Absolute URL") }),
         execute: ({ url }) =>
           step("navigate", `Opening ${hostOf(url)}`, async () => {
-            await this.tab?.loadURL(url).catch(() => {}); // aborted loads still land somewhere
-            await this.settle();
-            return { result: `Now on ${this.tab?.url}` };
+            await tab()
+              .loadURL(url)
+              .catch(() => {}); // aborted loads still land somewhere
+            await settle(tab());
+            return { result: `Now on ${tab().url}` };
           }),
       }),
 
@@ -312,9 +326,9 @@ export class Agent {
             if (denied)
               return { result: denied, summary: `Skipped “${label}”` };
             await act(page.click(ref));
-            await this.settle();
+            await settle(tab());
             return {
-              result: `Clicked. Now on ${this.tab?.url}. Call read_page to see the result.`,
+              result: `Clicked. Now on ${tab().url}. Call read_page to see the result.`,
             };
           }),
       }),
@@ -338,15 +352,15 @@ export class Agent {
               await act(page.selectOption(ref, text));
             } else {
               // Real input events, so React/Vue-controlled inputs pick up the value
-              this.tab!.webContents.insertText(text);
+              tab().webContents.insertText(text);
             }
             if (submit) {
-              this.pressEnter();
-              await this.settle();
+              pressEnter(tab());
+              await settle(tab());
             }
             return {
               result: submit
-                ? `Typed and submitted. Now on ${this.tab?.url}.`
+                ? `Typed and submitted. Now on ${tab().url}.`
                 : "Typed.",
             };
           }),
@@ -400,21 +414,13 @@ export class Agent {
   ): Promise<{ approved: boolean; note?: string }> {
     const id = randomUUID();
     return new Promise((resolve) => {
-      this.approvals.set(id, { resolve });
+      this.approvals.set(id, { taskId, resolve });
       this.store.emit({
         kind: "approval.requested",
         taskId,
         approval: { id, question },
       });
     });
-  }
-
-  private resolveAllApprovals(answer: {
-    approved: boolean;
-    note?: string;
-  }): void {
-    for (const id of [...this.approvals.keys()])
-      this.respondApproval(id, answer.approved, answer.note);
   }
 
   private withInbox(session: Session, result: string): string {
@@ -429,6 +435,8 @@ export class Agent {
   private openTab(url: string): Tab {
     const tab = this.window.createTab(url);
     this.window.switchActiveTab(tab.id);
+    // Agent tabs keep working (and rendering frames) while another tab is in front
+    tab.webContents.setBackgroundThrottling(false);
     // Keep popups and target=_blank inside the agent's tab
     tab.webContents.setWindowOpenHandler(({ url }) => {
       void tab.loadURL(url);
@@ -437,35 +445,37 @@ export class Agent {
     return tab;
   }
 
-  // Waits for any navigation the last action kicked off to finish
-  private async settle(): Promise<void> {
-    await delay(400);
-    const contents = this.tab?.webContents;
-    if (!contents?.isLoading()) return;
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(done, LOAD_TIMEOUT_MS);
-      contents.once("did-stop-loading", done);
-      function done(): void {
-        clearTimeout(timer);
-        contents?.removeListener("did-stop-loading", done);
-        resolve();
-      }
-    });
-    await delay(300);
-  }
-
-  private pressEnter(): void {
-    const contents = this.tab!.webContents;
-    contents.sendInputEvent({ type: "keyDown", keyCode: "Return" });
-    contents.sendInputEvent({ type: "char", keyCode: "\r" });
-    contents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
-  }
-
   private requireSession(taskId: string): Session {
-    if (!this.session || this.session.taskId !== taskId)
-      throw new Error("Unknown or old task.");
-    return this.session;
+    const session = this.sessions.get(taskId);
+    if (!session) throw new Error("That task isn't on this computer anymore.");
+    return session;
   }
+}
+
+const isAlive = (tab: Tab): boolean => !tab.webContents.isDestroyed();
+
+// Waits for any navigation the last action kicked off to finish
+async function settle(tab: Tab): Promise<void> {
+  await delay(400);
+  const contents = tab.webContents;
+  if (!contents.isLoading()) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(done, LOAD_TIMEOUT_MS);
+    contents.once("did-stop-loading", done);
+    function done(): void {
+      clearTimeout(timer);
+      contents.removeListener("did-stop-loading", done);
+      resolve();
+    }
+  });
+  await delay(300);
+}
+
+function pressEnter(tab: Tab): void {
+  const contents = tab.webContents;
+  contents.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+  contents.sendInputEvent({ type: "char", keyCode: "\r" });
+  contents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
 }
 
 const delay = (ms: number): Promise<void> =>

@@ -22,7 +22,9 @@ const frames = process.argv
 let state = initialState;
 const clients = new Set<WebSocket>();
 const approvals = new Map<string, (approved: boolean) => void>();
-let cancelled = false;
+// Tasks run side by side, like on the real desktop
+const cancelled = new Set<string>();
+const lastFrames = new Map<string, string>();
 
 const send = (socket: WebSocket, message: ServerMessage): void =>
   socket.send(JSON.stringify(message));
@@ -38,11 +40,9 @@ const sleep = (ms: number): Promise<void> =>
 let frameIndex = 0;
 const sendFrame = (taskId: string): void => {
   if (frames.length === 0) return;
-  broadcast({
-    type: "frame",
-    taskId,
-    jpegBase64: frames[frameIndex++ % frames.length],
-  });
+  const jpegBase64 = frames[frameIndex++ % frames.length];
+  lastFrames.set(taskId, jpegBase64);
+  broadcast({ type: "frame", taskId, jpegBase64 });
 };
 
 async function step(
@@ -51,7 +51,7 @@ async function step(
   running: string,
   done = running,
 ): Promise<void> {
-  if (cancelled) throw new Error("cancelled");
+  if (cancelled.has(taskId)) throw new Error("cancelled");
   const stepId = randomUUID();
   emit({
     kind: "step",
@@ -82,7 +82,6 @@ function ask(taskId: string, question: string): Promise<boolean> {
 }
 
 async function runTask(prompt: string): Promise<void> {
-  cancelled = false;
   const taskId = randomUUID();
   emit({
     kind: "task.created",
@@ -149,18 +148,19 @@ server.on("connection", (socket) => {
       authed = true;
       clients.add(socket);
       console.log(`connected: ${message.deviceName}`);
-      send(socket, { type: "snapshot", state });
-      if (state.order[0]) sendFrame(state.order[0]);
+      send(socket, {
+        type: "snapshot",
+        state,
+        desktop: { name: "Mock MacBook Pro" },
+      });
+      lastFrames.forEach((jpegBase64, taskId) =>
+        send(socket, { type: "frame", taskId, jpegBase64 }),
+      );
       return;
     }
 
     switch (message.type) {
       case "task.start":
-        if (state.activeTaskId)
-          return send(socket, {
-            type: "error",
-            message: "The agent is already working on a task.",
-          });
         void runTask(message.prompt);
         break;
       case "task.message":
@@ -173,7 +173,7 @@ server.on("connection", (socket) => {
         void say(message.taskId, `Got it: “${message.text}”.`);
         break;
       case "task.cancel":
-        cancelled = true;
+        cancelled.add(message.taskId);
         approvals.forEach((resolve) => resolve(false));
         break;
       case "approval.respond": {

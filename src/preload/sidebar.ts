@@ -52,6 +52,19 @@ const sidebarAPI = {
 
   // Tab information
   getActiveTabInfo: () => electronAPI.ipcRenderer.invoke("get-active-tab-info"),
+
+  // Companion app pairing. The on* functions return an unsubscribe function.
+  companion: {
+    getPairing: () => electronAPI.ipcRenderer.invoke("companion:get-pairing"),
+    resetPairing: () =>
+      electronAPI.ipcRenderer.invoke("companion:reset-pairing"),
+    onDevicesChanged: (callback: (devices: unknown[]) => void) =>
+      electronAPI.ipcRenderer.on("companion:devices", (_, devices) =>
+        callback(devices)
+      ),
+    onShowPairing: (callback: () => void) =>
+      electronAPI.ipcRenderer.on("companion:show-pairing", () => callback()),
+  },
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to

@@ -11,14 +11,15 @@ From the repo root, start the desktop app (needs an LLM key in `.env`):
 pnpm dev
 ```
 
-It prints a pairing QR code in the terminal. Then start the app:
+Click the phone icon in the browser's toolbar to show the pairing QR code. Then start the app:
 
 ```bash
 cd apps/companion
 npx expo start
 ```
 
-Open it in Expo Go and scan the desktop's pairing code from the app. Phone and computer must be on the same Wi-Fi.
+Open it in Expo Go (signed in to the same Expo account as the CLI on a physical iPhone), choose
+**Link with QR code** and scan the code. Phone and computer must be on the same Wi-Fi.
 
 ## Without the desktop
 

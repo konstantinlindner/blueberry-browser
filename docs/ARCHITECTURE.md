@@ -88,9 +88,10 @@ State is small (a few tasks with their steps), so this is simpler and correct.
 
 ### `agent.ts`
 
-- One task at a time. `task.start` while one is running → reply with an error event.
-- Opens its **own tab** via the existing `window.createTab(url)`, so the user
-  can keep browsing.
+- Several tasks run side by side (capped at 4), each in its **own tab** via the
+  existing `window.createTab(url)`, so they don't fight each other or the user.
+  Agent tabs have background throttling off so they keep working behind the
+  active tab.
 - AI SDK `streamText` with `stopWhen: stepCountIs(25)` and an `AbortController`
   for cancel.
 - Steering: `task.message` is pushed onto the message history and picked up
@@ -113,12 +114,28 @@ policy engine.
 
 ### `server.ts`
 
-- `ws` on `0.0.0.0:47800`. On startup it prints a QR code to the terminal
-  (`qrcode-terminal`) with `blueberry://pair?host=<lan-ip>&port=47800&token=<token>`.
+- `ws` on `0.0.0.0:47800`. The pairing link is
+  `blueberry://pair?host=<lan-ip>&port=47800&token=<token>`.
 - Token: random, generated once and saved in `userData`. Any socket that doesn't send a
-  valid `hello` within 3s gets closed.
-- After each agent step: `capturePage()` → `resize({ width: 480 })` → `toJPEG(60)` → `frame`.
-  Skipped if the socket's `bufferedAmount` is high.
+  valid `hello` within 3s gets closed. "Reset pairing code" issues a new token
+  and disconnects paired phones.
+- The snapshot includes the computer's name (`scutil --get ComputerName` on macOS).
+- Frames per task, after each step and once a second while running:
+  `capturePage(undefined, { stayHidden: true })` (background tabs still render) →
+  `resize({ width: 480 })` → `toJPEG(60)`. The last frame per task is cached so a
+  phone that connects later gets a thumbnail for every chat. Skipped if the
+  socket's `bufferedAmount` is high.
+
+### Desktop UI
+
+- A phone button in the toolbar (`CompanionButton`, green dot while a phone is
+  connected) opens a **Connect your phone** panel in the sidebar
+  (`CompanionPanel`): QR code (rendered in main with `qrcode`), the computer's
+  name, connected phones, a "Connected" confirmation when one links, and
+  "Reset pairing code".
+- The IPC (`companion:get-pairing`, `companion:show-pairing`,
+  `companion:reset-pairing`, `companion:devices`) is registered by the companion
+  module itself, so `EventManager` is untouched.
 
 ## 5. Companion app (the focus)
 
@@ -132,33 +149,35 @@ app, so pairing only works through the in-app scanner. Phone and laptop must be
 on the same Wi-Fi network. iOS will ask for Local Network permission the first time.
 
 ```
-apps/companion/
+apps/companion/src/
 ├── app/
-│   ├── _layout.tsx         # connection lifecycle, approval watcher
-│   ├── pair.tsx            # QR scan → save host/token → connect
-│   ├── index.tsx           # tasks list + composer ("What should Blueberry do?")
-│   ├── task/[id].tsx       # live view
-│   └── approval/[id].tsx   # modal route
+│   ├── _layout.tsx         # guarded stack, connection lifecycle, approval watcher
+│   ├── onboarding.tsx      # sign in (placeholder) or link with QR code
+│   ├── scan.tsx            # camera scanner → probe the desktop → "Linked"
+│   ├── index.tsx           # chats: active + earlier, computer status
+│   ├── chat/new.tsx        # new chat with suggestions
+│   ├── chat/[id].tsx       # live view, prompt, grouped steps, messages, steering
+│   ├── approval/[id].tsx   # form sheet
+│   └── settings.tsx        # account (placeholder), computer, unlink
 ├── lib/
-│   ├── connection.ts       # ws client, hello, backoff, AppState-aware
-│   └── store.ts            # zustand wrapping protocol reducer + latest frames
-└── components/
-    ├── LiveFrame.tsx       # cross-fades between frames
-    ├── StepTimeline.tsx    # steps animate in, running step pulses
-    ├── ApprovalSheet.tsx
-    └── ConnectionPill.tsx  # connected / reconnecting / offline
+│   ├── connection.ts       # ws client, hello, backoff, AppState-aware, probe()
+│   ├── store.ts            # zustand wrapping protocol reducer + latest frames
+│   └── selectors.ts        # chat list preview, step grouping, status labels
+└── components/             # LiveFrame, ChatListItem, StepsCard, TimelineRow, …
 ```
 
 ### Screens
 
-1. **Pair**: in-app camera scans the QR code, credentials go into secure store, then it
-   connects. A "Connected to Konstantin's MacBook" confirmation with a success haptic.
-2. **Tasks**: running task pinned at the top with its live thumbnail, then
-   history. Composer at the bottom, with suggested prompts as an empty state.
-3. **Live task**: big live frame on top. Step timeline below ("Opened
-   amazon.se", "Searching for 'usb-c cable'", "Clicking 'Add to cart'…").
-   Agent messages inline. Input bar to steer ("pick the cheaper one"). Cancel
-   button.
+1. **Onboarding**: "Sign in to Blueberry" and "Create an account" are
+   placeholders (accounts are coming soon). "Link with QR code" is the real path.
+2. **Scan**: full-screen scanner. A scanned code is **probed** (connect, hello,
+   wait for the snapshot) before it's saved, so a bad code or wrong Wi-Fi gives a
+   clear error instead of a broken app. Success shows "Linked · <computer name>".
+3. **Chats**: the linked computer and its status, then Active and Earlier chats
+   with live thumbnails, latest step and status. Several can run at once.
+4. **Chat**: live view (tap to enlarge), the prompt as a message, consecutive
+   steps grouped into one activity card, agent messages inline, input bar to
+   steer or follow up, Stop button.
 4. **Approval** (modal): question, latest frame, big Approve / Deny, optional
    note. Opens automatically when an approval comes in. If the app was in the
    background, it opens right after reconnecting, since the snapshot carries
@@ -169,7 +188,7 @@ apps/companion/
 - `AppState` `active` → connect (snapshot brings it up to date). `background`
   → close. iOS would kill the socket anyway. The agent just waits on a pending
   approval until you come back.
-- Exponential backoff while active. `ConnectionPill` always shows the state.
+- Exponential backoff while active. `ConnectionStatus` always shows the state.
 - Commands sent while offline are blocked in the UI, not queued. That's simpler
   and honest.
 

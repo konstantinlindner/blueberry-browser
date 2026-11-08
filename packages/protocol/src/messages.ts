@@ -55,9 +55,9 @@ export type Task = z.infer<typeof TaskSchema>;
 
 export const AgentStateSchema = z.object({
   tasks: z.record(z.string(), TaskSchema),
-  // Newest first
+  // Newest first. Several tasks can run at once; a task is running until its
+  // status is terminal, so there's no single "active" task.
   order: z.array(z.string()),
-  activeTaskId: z.string().nullable(),
 });
 export type AgentState = z.infer<typeof AgentStateSchema>;
 
@@ -150,7 +150,11 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
 export const ServerMessageSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("snapshot"), state: AgentStateSchema }),
+  z.object({
+    type: z.literal("snapshot"),
+    state: AgentStateSchema,
+    desktop: z.object({ name: z.string() }),
+  }),
   z.object({ type: z.literal("event"), event: AgentEventSchema }),
   // Latest frame wins; never part of state
   z.object({

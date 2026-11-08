@@ -1,7 +1,7 @@
 import { initialState, reduce, type AgentState, type ServerMessage } from '@blueberry/protocol';
 import { create } from 'zustand';
 
-import { loadPairing, type Pairing } from './pairing';
+import { loadPairing, savePairing, type Pairing } from './pairing';
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'offline' | 'unauthorized';
 
@@ -27,8 +27,11 @@ export const useStore = create<Store>(() => ({
 export function applyServerMessage(message: ServerMessage): void {
   useStore.setState((s) => {
     switch (message.type) {
-      case 'snapshot':
-        return { agent: message.state };
+      case 'snapshot': {
+        const pairing = s.pairing && { ...s.pairing, desktopName: message.desktop.name };
+        if (pairing && pairing.desktopName !== s.pairing?.desktopName) savePairing(pairing);
+        return { agent: message.state, pairing };
+      }
       case 'event':
         return { agent: reduce(s.agent, message.event) };
       case 'frame':

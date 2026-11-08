@@ -5,6 +5,8 @@ export interface Pairing {
   host: string;
   port: number;
   token: string;
+  // Learned from the desktop on connect, so it can be shown while offline
+  desktopName?: string;
 }
 
 const STORAGE_KEY = 'blueberry.pairing';

@@ -30,11 +30,14 @@ export default function RootLayout() {
           headerStyle: { backgroundColor: theme.background },
           headerTintColor: theme.primary,
           headerTitleStyle: { color: theme.text },
+          headerLargeTitleStyle: { color: theme.text },
           contentStyle: { backgroundColor: theme.background },
         }}>
-        <Stack.Protected guard={paired}>
-          <Stack.Screen name="index" options={{ title: 'Blueberry', headerLargeTitle: true }} />
-          <Stack.Screen name="task/[id]" options={{ title: '', headerBackTitle: 'Tasks' }} />
+        {/* Explicit targets: otherwise the router picks the first allowed screen itself */}
+        <Stack.Protected guard={paired} redirectTo="/onboarding">
+          <Stack.Screen name="index" options={{ title: 'Chats', headerLargeTitle: true }} />
+          <Stack.Screen name="chat/new" options={{ title: 'New chat', headerBackTitle: 'Chats' }} />
+          <Stack.Screen name="chat/[id]" options={{ title: '', headerBackTitle: 'Chats' }} />
           <Stack.Screen
             name="approval/[id]"
             options={{
@@ -44,9 +47,14 @@ export default function RootLayout() {
               headerShown: false,
             }}
           />
+          <Stack.Screen name="settings" options={{ presentation: 'modal', title: 'Settings' }} />
         </Stack.Protected>
-        <Stack.Protected guard={!paired}>
-          <Stack.Screen name="pair" options={{ headerShown: false }} />
+        <Stack.Protected guard={!paired} redirectTo="/">
+          <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="scan"
+            options={{ headerShown: false, presentation: 'fullScreenModal' }}
+          />
         </Stack.Protected>
       </Stack>
       <Toast />
@@ -71,9 +79,9 @@ function useConnectionLifecycle(paired: boolean) {
   }, [paired]);
 }
 
-// Opens the approval sheet as soon as the agent asks, whether that arrives as
+// Opens the approval sheet as soon as an agent asks, whether that arrives as
 // a live event or in the snapshot after reopening the app. Each approval pops
-// up once; if dismissed it stays reachable from the task screen.
+// up once; if dismissed it stays reachable from its chat.
 function useApprovalWatcher() {
   const pendingId = useStore((s) => firstPendingApprovalId(s.agent));
   const shown = useRef(new Set<string>());

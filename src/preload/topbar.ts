@@ -1,6 +1,11 @@
 import { contextBridge } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 
+interface CompanionDevice {
+  name: string;
+  connectedAt: number;
+}
+
 // TopBar specific APIs
 const topBarAPI = {
   // Tab management
@@ -31,6 +36,14 @@ const topBarAPI = {
   // Sidebar
   toggleSidebar: () =>
     electronAPI.ipcRenderer.invoke("toggle-sidebar"),
+
+  // Companion app
+  showCompanionPairing: () =>
+    electronAPI.ipcRenderer.invoke("companion:show-pairing"),
+  onCompanionDevices: (callback: (devices: CompanionDevice[]) => void) =>
+    electronAPI.ipcRenderer.on("companion:devices", (_, devices) =>
+      callback(devices)
+    ),
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to

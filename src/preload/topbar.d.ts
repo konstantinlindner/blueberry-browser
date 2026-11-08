@@ -28,6 +28,13 @@ interface TopBarAPI {
 
   // Sidebar
   toggleSidebar: () => Promise<void>;
+
+  // Companion app
+  showCompanionPairing: () => Promise<void>;
+  // Returns an unsubscribe function
+  onCompanionDevices: (
+    callback: (devices: { name: string; connectedAt: number }[]) => void
+  ) => () => void;
 }
 
 declare global {

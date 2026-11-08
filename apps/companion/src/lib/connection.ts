@@ -109,3 +109,47 @@ function setStatus(status: ConnectionStatus): void {
 }
 
 export const connection = new Connection();
+
+const PROBE_TIMEOUT_MS = 6000;
+
+// Checks a freshly scanned code before saving it: connects, says hello and
+// waits for the snapshot. Resolves with the desktop's name.
+export function probe(pairing: Pairing): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(`ws://${pairing.host}:${pairing.port}`);
+    const fail = (message: string) => {
+      clearTimeout(timer);
+      socket.onclose = null;
+      socket.close();
+      reject(new Error(message));
+    };
+    const timer = setTimeout(
+      () => fail('Couldn’t reach your computer. Make sure your phone is on the same Wi-Fi.'),
+      PROBE_TIMEOUT_MS,
+    );
+
+    socket.onopen = () =>
+      socket.send(
+        JSON.stringify({
+          type: 'hello',
+          token: pairing.token,
+          deviceName: Device.deviceName ?? Device.modelName ?? 'Phone',
+        } satisfies ClientMessage),
+      );
+    socket.onmessage = (event) => {
+      const parsed = parseServerMessage(String(event.data));
+      if (parsed.ok && parsed.data.type === 'snapshot') {
+        clearTimeout(timer);
+        socket.onclose = null;
+        socket.close();
+        resolve(parsed.data.desktop.name);
+      }
+    };
+    socket.onclose = (event) =>
+      fail(
+        event.code === 4003
+          ? 'This code has expired. Show a new one on your computer.'
+          : 'Couldn’t reach your computer. Make sure your phone is on the same Wi-Fi.',
+      );
+  });
+}

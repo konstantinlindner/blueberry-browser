@@ -1,132 +1,153 @@
-import { useHeaderHeight } from '@react-navigation/elements';
+import { Ionicons } from '@expo/vector-icons';
+import type { Task } from '@blueberry/protocol';
 import { router, Stack } from 'expo-router';
-import { useMemo, useState } from 'react';
-import {
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useMemo } from 'react';
+import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 
-import { Composer } from '@/components/Composer';
-import { ConnectionPill } from '@/components/ConnectionPill';
-import { ActiveTaskCard, TaskRow } from '@/components/TaskCard';
+import { BrandMark } from '@/components/BrandMark';
+import { Button } from '@/components/Button';
+import { ChatListItem } from '@/components/ChatListItem';
+import { ConnectionStatus } from '@/components/ConnectionStatus';
+import { HeaderButton } from '@/components/HeaderButton';
+import { SUGGESTIONS } from '@/constants/suggestions';
 import { Radius, Spacing, useTheme } from '@/constants/theme';
-import { startTask } from '@/lib/actions';
-import { reportError, useStore } from '@/lib/store';
+import { isActive } from '@/lib/selectors';
+import { useStore } from '@/lib/store';
 
-const SUGGESTIONS = [
-  'Find a USB-C cable under 100 kr and add it to the cart',
-  'What’s the top story on Hacker News right now?',
-  'Look up tomorrow’s weather in Stockholm',
-];
-
-export default function TasksScreen() {
+export default function ChatsScreen() {
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
-  const headerHeight = useHeaderHeight();
   const agent = useStore((s) => s.agent);
-  const connected = useStore((s) => s.status === 'open');
-  // Bumped to remount the composer with a suggestion prefilled
-  const [draft, setDraft] = useState({ key: 0, text: '' });
 
-  const active = agent.activeTaskId ? agent.tasks[agent.activeTaskId] : null;
-  const history = useMemo(
-    () => agent.order.filter((id) => id !== agent.activeTaskId).map((id) => agent.tasks[id]),
-    [agent],
-  );
-
-  const start = async (prompt: string) => {
-    try {
-      const taskId = await startTask(prompt);
-      router.push(`/task/${taskId}`);
-    } catch (error) {
-      reportError((error as Error).message);
-      throw error;
-    }
-  };
+  const sections = useMemo(() => {
+    const tasks = agent.order.map((id) => agent.tasks[id]);
+    return [
+      { title: 'Active', data: tasks.filter(isActive) },
+      { title: 'Earlier', data: tasks.filter((task) => !isActive(task)) },
+    ].filter((section) => section.data.length > 0);
+  }, [agent]);
 
   return (
     <>
-      <Stack.Screen options={{ headerRight: () => <ConnectionPill /> }} />
-      <KeyboardAvoidingView
-        style={styles.screen}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={headerHeight}>
-        <FlatList
-          data={history}
-          keyExtractor={(task) => task.id}
-          contentInsetAdjustmentBehavior="automatic"
-          keyboardDismissMode="interactive"
-          contentContainerStyle={styles.list}
-          ListHeaderComponent={
-            <View style={styles.header}>
-              {active ? <ActiveTaskCard task={active} /> : null}
-              {history.length > 0 ? (
-                <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Earlier</Text>
-              ) : null}
-            </View>
-          }
-          ListEmptyComponent={
-            active ? undefined : (
-              <View style={styles.empty}>
-                <Text style={styles.emptyLogo}>🫐</Text>
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                  What should Blueberry do?
-                </Text>
-                <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-                  Hand off a task and watch your browser do it. You’ll be asked before anything
-                  irreversible.
-                </Text>
-                <View style={styles.suggestions}>
-                  {SUGGESTIONS.map((text) => (
-                    <Pressable
-                      key={text}
-                      onPress={() => setDraft((d) => ({ key: d.key + 1, text }))}
-                      style={[styles.suggestion, { backgroundColor: theme.primarySoft }]}>
-                      <Text style={[styles.suggestionText, { color: theme.primary }]}>{text}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            )
-          }
-          renderItem={({ item }) => <TaskRow task={item} />}
-          ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
-        />
-        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, Spacing.md) }]}>
-          <Composer
-            key={draft.key}
-            initialText={draft.text}
-            placeholder={connected ? 'Ask Blueberry to do something…' : 'Waiting for your desktop…'}
-            disabled={!connected}
-            onSend={start}
-          />
-        </View>
-      </KeyboardAvoidingView>
+      <Stack.Screen
+        options={{
+          headerLeft: () => (
+            <HeaderButton
+              icon="person-circle-outline"
+              label="Settings"
+              onPress={() => router.push('/settings')}
+            />
+          ),
+          headerRight: () => (
+            <HeaderButton
+              icon="create-outline"
+              label="New chat"
+              onPress={() => router.push('/chat/new')}
+            />
+          ),
+        }}
+      />
+      <SectionList<Task>
+        sections={sections}
+        keyExtractor={(task) => task.id}
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={styles.list}
+        stickySectionHeadersEnabled={false}
+        ListHeaderComponent={<ComputerCard />}
+        renderSectionHeader={({ section }) => (
+          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>{section.title}</Text>
+        )}
+        renderItem={({ item }) => <ChatListItem task={item} />}
+        ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
+        ListEmptyComponent={<EmptyChats />}
+      />
     </>
   );
 }
 
+// Which computer this phone drives, and whether it's reachable
+function ComputerCard() {
+  const theme = useTheme();
+  const desktopName = useStore((s) => s.pairing?.desktopName ?? 'Your computer');
+
+  return (
+    <Pressable
+      onPress={() => router.push('/settings')}
+      style={[styles.computer, { backgroundColor: theme.card }]}>
+      <View style={[styles.computerIcon, { backgroundColor: theme.primarySoft }]}>
+        <Ionicons name="laptop-outline" size={20} color={theme.primary} />
+      </View>
+      <View style={styles.computerText}>
+        <Text style={[styles.computerName, { color: theme.text }]} numberOfLines={1}>
+          {desktopName}
+        </Text>
+        <ConnectionStatus />
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+    </Pressable>
+  );
+}
+
+function EmptyChats() {
+  const theme = useTheme();
+  return (
+    <View style={styles.empty}>
+      <BrandMark size={64} />
+      <Text style={[styles.emptyTitle, { color: theme.text }]}>No chats yet</Text>
+      <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+        Start a chat and Blueberry gets to work in your browser. You can run several at once.
+      </Text>
+      <Button
+        title="Start a chat"
+        icon="create-outline"
+        onPress={() => router.push('/chat/new')}
+        style={styles.emptyButton}
+      />
+      <View style={styles.suggestions}>
+        {SUGGESTIONS.map((prompt) => (
+          <Pressable
+            key={prompt}
+            onPress={() => router.push({ pathname: '/chat/new', params: { prompt } })}
+            style={[styles.suggestion, { backgroundColor: theme.primarySoft }]}>
+            <Text style={[styles.suggestionText, { color: theme.primary }]}>{prompt}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  list: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, flexGrow: 1 },
-  header: { gap: Spacing.lg, paddingTop: Spacing.sm, paddingBottom: Spacing.sm },
-  sectionTitle: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
-  empty: {
-    flex: 1,
+  list: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xxl, flexGrow: 1 },
+  computer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.md,
+    borderRadius: Radius.lg,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  computerIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.sm,
-    paddingVertical: Spacing.xxl,
   },
-  emptyLogo: { fontSize: 48 },
-  emptyTitle: { fontSize: 22, fontWeight: '700' },
+  computerText: { flex: 1, gap: 2 },
+  computerName: { fontSize: 16, fontWeight: '600' },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
+  empty: { alignItems: 'center', gap: Spacing.sm, paddingTop: Spacing.xxl },
+  emptyTitle: { fontSize: 22, fontWeight: '700', marginTop: Spacing.md },
   emptyText: { fontSize: 15, lineHeight: 21, textAlign: 'center', maxWidth: 300 },
+  emptyButton: { marginTop: Spacing.md, alignSelf: 'stretch' },
   suggestions: { gap: Spacing.sm, marginTop: Spacing.lg, alignSelf: 'stretch' },
   suggestion: {
     borderRadius: Radius.md,
@@ -134,5 +155,4 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
   },
   suggestionText: { fontSize: 15, fontWeight: '500' },
-  composer: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm },
 });
