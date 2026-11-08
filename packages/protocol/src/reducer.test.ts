@@ -3,8 +3,10 @@ import type { AgentEvent, AgentState } from "./messages";
 import { parseClientMessage, parseServerMessage } from "./messages";
 import { initialState, reduce } from "./reducer";
 
-const run = (events: AgentEvent[], from: AgentState = initialState): AgentState =>
-  events.reduce(reduce, from);
+const run = (
+  events: AgentEvent[],
+  from: AgentState = initialState,
+): AgentState => events.reduce(reduce, from);
 
 const created: AgentEvent = {
   kind: "task.created",
@@ -15,7 +17,10 @@ describe("reduce", () => {
   it("creates a running task, newest first, and marks it active", () => {
     const state = run([
       created,
-      { kind: "task.created", task: { id: "t2", prompt: "second", createdAt: 2 } },
+      {
+        kind: "task.created",
+        task: { id: "t2", prompt: "second", createdAt: 2 },
+      },
     ]);
     expect(state.order).toEqual(["t2", "t1"]);
     expect(state.activeTaskId).toBe("t2");
@@ -25,12 +30,32 @@ describe("reduce", () => {
   it("upserts steps by id so start and finish become one timeline item", () => {
     const state = run([
       created,
-      { kind: "step", taskId: "t1", stepId: "s1", tool: "click", summary: "Clicking", status: "running" },
+      {
+        kind: "step",
+        taskId: "t1",
+        stepId: "s1",
+        tool: "click",
+        summary: "Clicking",
+        status: "running",
+      },
       { kind: "text", taskId: "t1", id: "m1", text: "Found it" },
-      { kind: "step", taskId: "t1", stepId: "s1", tool: "click", summary: "Clicked", status: "ok" },
+      {
+        kind: "step",
+        taskId: "t1",
+        stepId: "s1",
+        tool: "click",
+        summary: "Clicked",
+        status: "ok",
+      },
     ]);
     expect(state.tasks.t1.timeline).toEqual([
-      { type: "step", id: "s1", tool: "click", summary: "Clicked", status: "ok" },
+      {
+        type: "step",
+        id: "s1",
+        tool: "click",
+        summary: "Clicked",
+        status: "ok",
+      },
       { type: "agent", id: "m1", text: "Found it" },
     ]);
   });
@@ -38,10 +63,17 @@ describe("reduce", () => {
   it("tracks an approval round trip", () => {
     const waiting = run([
       created,
-      { kind: "approval.requested", taskId: "t1", approval: { id: "a1", question: "Checkout?" } },
+      {
+        kind: "approval.requested",
+        taskId: "t1",
+        approval: { id: "a1", question: "Checkout?" },
+      },
     ]);
     expect(waiting.tasks.t1.status).toBe("waiting");
-    expect(waiting.tasks.t1.pendingApproval).toEqual({ id: "a1", question: "Checkout?" });
+    expect(waiting.tasks.t1.pendingApproval).toEqual({
+      id: "a1",
+      question: "Checkout?",
+    });
 
     const resolved = reduce(waiting, {
       kind: "approval.resolved",
@@ -59,11 +91,19 @@ describe("reduce", () => {
   it("finishing clears the active task and any pending approval", () => {
     const state = run([
       created,
-      { kind: "approval.requested", taskId: "t1", approval: { id: "a1", question: "?" } },
+      {
+        kind: "approval.requested",
+        taskId: "t1",
+        approval: { id: "a1", question: "?" },
+      },
       { kind: "task.finished", taskId: "t1", summary: "Added to cart" },
     ]);
     expect(state.activeTaskId).toBeNull();
-    expect(state.tasks.t1).toMatchObject({ status: "done", summary: "Added to cart", pendingApproval: null });
+    expect(state.tasks.t1).toMatchObject({
+      status: "done",
+      summary: "Added to cart",
+      pendingApproval: null,
+    });
   });
 
   it("a follow-up makes a finished task active again", () => {
@@ -77,7 +117,12 @@ describe("reduce", () => {
 
   it("ignores events for unknown tasks", () => {
     const before = run([created]);
-    const after = reduce(before, { kind: "text", taskId: "nope", id: "m1", text: "hi" });
+    const after = reduce(before, {
+      kind: "text",
+      taskId: "nope",
+      id: "m1",
+      text: "hi",
+    });
     expect(after).toBe(before);
   });
 
@@ -91,9 +136,18 @@ describe("reduce", () => {
 
 describe("parsing", () => {
   it("accepts valid messages and rejects invalid ones", () => {
-    expect(parseClientMessage(JSON.stringify({ type: "task.start", prompt: "go" })).ok).toBe(true);
-    expect(parseClientMessage(JSON.stringify({ type: "task.start", prompt: "" })).ok).toBe(false);
+    expect(
+      parseClientMessage(JSON.stringify({ type: "task.start", prompt: "go" }))
+        .ok,
+    ).toBe(true);
+    expect(
+      parseClientMessage(JSON.stringify({ type: "task.start", prompt: "" })).ok,
+    ).toBe(false);
     expect(parseClientMessage("{nope").ok).toBe(false);
-    expect(parseServerMessage(JSON.stringify({ type: "snapshot", state: initialState })).ok).toBe(true);
+    expect(
+      parseServerMessage(
+        JSON.stringify({ type: "snapshot", state: initialState }),
+      ).ok,
+    ).toBe(true);
   });
 });

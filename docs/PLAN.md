@@ -12,7 +12,8 @@ product, 5 is polish. Runs in Expo Go, no push notifications.
 ### 0.1 Turn the repo into a pnpm workspace
 - Add `pnpm-workspace.yaml` with `packages: ["packages/*", "apps/*"]`.
   The root stays the Electron app.
-- Add `.npmrc` with `node-linker=hoisted` (Metro is happiest with this).
+- Keep pnpm's default isolated installs. Expo supports them since SDK 54, and hoisting would
+  mix the renderer's React 19.1 with Expo's React 19.3 in one `node_modules`.
 - `pnpm install`, then `pnpm dev`.
 
 **Done when:** the browser still starts and the chat still works, i.e. nothing regressed.

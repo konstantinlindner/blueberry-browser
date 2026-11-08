@@ -1,7 +1,15 @@
 import { randomUUID } from "crypto";
 import { join } from "path";
 import * as dotenv from "dotenv";
-import { hasToolCall, stepCountIs, streamText, tool, type LanguageModel, type ModelMessage } from "ai";
+import {
+  hasToolCall,
+  stepCountIs,
+  streamText,
+  tool,
+  type LanguageModel,
+  type ModelMessage,
+  type ToolSet,
+} from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
@@ -23,6 +31,7 @@ How to work:
 - Call read_page to see the page. Elements are listed as [ref] role "name". Use those refs with click and type.
 - Refs change after every navigation or page update. Call read_page again before acting on a new page.
 - Prefer navigating directly to a URL when you know it (e.g. a search results URL).
+- Dismiss cookie banners and popups first (accept or close), since they block the page.
 - Keep moving. Don't explain every step; short notes for the user are fine.
 - Before anything irreversible (buying, paying, sending, submitting personal data, deleting), call ask_user and wait.
 - If the user denies something, don't try to work around it. Adapt or ask what they want.
@@ -48,7 +57,7 @@ export class Agent {
 
   constructor(
     private readonly window: Window,
-    private readonly store: CompanionStore
+    private readonly store: CompanionStore,
   ) {}
 
   get tab(): Tab | null {
@@ -61,8 +70,10 @@ export class Agent {
   }
 
   start(prompt: string, startUrl?: string): void {
-    if (!this.model) throw new Error("No LLM API key configured on the desktop (.env).");
-    if (this.isRunning) throw new Error("The agent is already working on a task.");
+    if (!this.model)
+      throw new Error("No LLM API key configured on the desktop (.env).");
+    if (this.isRunning)
+      throw new Error("The agent is already working on a task.");
 
     const tab = this.openTab(startUrl ?? DEFAULT_START_URL);
     const taskId = randomUUID();
@@ -73,7 +84,10 @@ export class Agent {
       abort: null,
       inbox: [],
     };
-    this.store.emit({ kind: "task.created", task: { id: taskId, prompt, createdAt: Date.now() } });
+    this.store.emit({
+      kind: "task.created",
+      task: { id: taskId, prompt, createdAt: Date.now() },
+    });
     void this.run();
   }
 
@@ -172,7 +186,10 @@ export class Agent {
 
     // The user said something after the last tool call; keep going instead of stopping
     if (session.inbox.length > 0 && finishedWith === null) {
-      session.messages.push({ role: "user", content: session.inbox.splice(0).join("\n") });
+      session.messages.push({
+        role: "user",
+        content: session.inbox.splice(0).join("\n"),
+      });
       return this.run();
     }
 
@@ -183,7 +200,10 @@ export class Agent {
     });
   }
 
-  private buildTools(session: Session, onFinish: (summary: string) => void) {
+  private buildTools(
+    session: Session,
+    onFinish: (summary: string) => void,
+  ): ToolSet {
     const { taskId } = session;
 
     // Wraps a tool so every call shows up as a step on the phone, and any
@@ -191,17 +211,38 @@ export class Agent {
     const step = async (
       tool: string,
       summary: string,
-      fn: () => Promise<{ result: string; summary?: string }>
+      fn: () => Promise<{ result: string; summary?: string }>,
     ): Promise<string> => {
       const stepId = randomUUID();
-      this.store.emit({ kind: "step", taskId, stepId, tool, summary, status: "running" });
+      this.store.emit({
+        kind: "step",
+        taskId,
+        stepId,
+        tool,
+        summary,
+        status: "running",
+      });
       try {
         const out = await fn();
-        this.store.emit({ kind: "step", taskId, stepId, tool, summary: out.summary ?? summary, status: "ok" });
+        this.store.emit({
+          kind: "step",
+          taskId,
+          stepId,
+          tool,
+          summary: out.summary ?? summary,
+          status: "ok",
+        });
         return this.withInbox(session, out.result);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        this.store.emit({ kind: "step", taskId, stepId, tool, summary: `${summary} — failed`, status: "error" });
+        this.store.emit({
+          kind: "step",
+          taskId,
+          stepId,
+          tool,
+          summary: `${summary} — failed`,
+          status: "error",
+        });
         return this.withInbox(session, `Error: ${message}`);
       }
     };
@@ -219,11 +260,19 @@ export class Agent {
     };
 
     // Returns a refusal message if the user denied, null if allowed to proceed
-    const guard = async (ref: number, action: "click" | "type", what: string): Promise<string | null> => {
-      const reason = await run<string | null>(page.sensitiveReason(ref, action));
+    const guard = async (
+      ref: number,
+      action: "click" | "type",
+      what: string,
+    ): Promise<string | null> => {
+      const reason = await run<string | null>(
+        page.sensitiveReason(ref, action),
+      );
       if (!reason) return null;
       const answer = await this.askUser(taskId, `${what}? ${reason}.`);
-      return answer.approved ? null : `The user denied this action.${answer.note ? ` Note: ${answer.note}` : ""}`;
+      return answer.approved
+        ? null
+        : `The user denied this action.${answer.note ? ` Note: ${answer.note}` : ""}`;
     };
 
     return {
@@ -239,7 +288,8 @@ export class Agent {
       }),
 
       read_page: tool({
-        description: "Read the current page: URL, title, interactive elements with refs, and visible text.",
+        description:
+          "Read the current page: URL, title, interactive elements with refs, and visible text.",
         inputSchema: z.object({}),
         execute: () =>
           step("read_page", "Reading the page", async () => {
@@ -255,23 +305,33 @@ export class Agent {
         description: "Click an element by ref from read_page.",
         inputSchema: z.object({
           ref: z.number().int(),
-          label: z.string().describe("Short human description of what you're clicking, e.g. 'Add to cart'"),
+          label: z
+            .string()
+            .describe(
+              "Short human description of what you're clicking, e.g. 'Add to cart'",
+            ),
         }),
         execute: ({ ref, label }) =>
           step("click", `Clicking “${label}”`, async () => {
             const denied = await guard(ref, "click", `Click “${label}”`);
-            if (denied) return { result: denied, summary: `Skipped “${label}”` };
+            if (denied)
+              return { result: denied, summary: `Skipped “${label}”` };
             await act(page.click(ref));
             await this.settle();
-            return { result: `Clicked. Now on ${this.tab?.url}. Call read_page to see the result.` };
+            return {
+              result: `Clicked. Now on ${this.tab?.url}. Call read_page to see the result.`,
+            };
           }),
       }),
 
       type: tool({
-        description: "Type into an input, textarea or select (by ref). Replaces existing content.",
+        description:
+          "Type into an input, textarea or select (by ref). Replaces existing content.",
         inputSchema: z.object({
           ref: z.number().int(),
-          text: z.string().describe("Text to type, or the option label for a select"),
+          text: z
+            .string()
+            .describe("Text to type, or the option label for a select"),
           submit: z.boolean().optional().describe("Press Enter afterwards"),
         }),
         execute: ({ ref, text, submit }) =>
@@ -289,7 +349,11 @@ export class Agent {
               this.pressEnter();
               await this.settle();
             }
-            return { result: submit ? `Typed and submitted. Now on ${this.tab?.url}.` : "Typed." };
+            return {
+              result: submit
+                ? `Typed and submitted. Now on ${this.tab?.url}.`
+                : "Typed.",
+            };
           }),
       }),
 
@@ -300,7 +364,9 @@ export class Agent {
           step("scroll", `Scrolling ${direction}`, async () => {
             await run(page.scroll(direction));
             await delay(300);
-            return { result: "Scrolled. Call read_page to see what's visible now." };
+            return {
+              result: "Scrolled. Call read_page to see what's visible now.",
+            };
           }),
       }),
 
@@ -333,21 +399,35 @@ export class Agent {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  private askUser(taskId: string, question: string): Promise<{ approved: boolean; note?: string }> {
+  private askUser(
+    taskId: string,
+    question: string,
+  ): Promise<{ approved: boolean; note?: string }> {
     const id = randomUUID();
     return new Promise((resolve) => {
       this.approvals.set(id, { resolve });
-      this.store.emit({ kind: "approval.requested", taskId, approval: { id, question } });
+      this.store.emit({
+        kind: "approval.requested",
+        taskId,
+        approval: { id, question },
+      });
     });
   }
 
-  private resolveAllApprovals(answer: { approved: boolean; note?: string }): void {
-    for (const id of [...this.approvals.keys()]) this.respondApproval(id, answer.approved, answer.note);
+  private resolveAllApprovals(answer: {
+    approved: boolean;
+    note?: string;
+  }): void {
+    for (const id of [...this.approvals.keys()])
+      this.respondApproval(id, answer.approved, answer.note);
   }
 
   private withInbox(session: Session, result: string): string {
     if (session.inbox.length === 0) return result;
-    const messages = session.inbox.splice(0).map((m) => `- ${m}`).join("\n");
+    const messages = session.inbox
+      .splice(0)
+      .map((m) => `- ${m}`)
+      .join("\n");
     return `${result}\n\n[New message from the user]\n${messages}`;
   }
 
@@ -387,7 +467,8 @@ export class Agent {
   }
 
   private requireSession(taskId: string): Session {
-    if (!this.session || this.session.taskId !== taskId) throw new Error("Unknown or old task.");
+    if (!this.session || this.session.taskId !== taskId)
+      throw new Error("Unknown or old task.");
     return this.session;
   }
 }
@@ -395,14 +476,20 @@ export class Agent {
 function createModel(): LanguageModel | null {
   const provider = process.env.LLM_PROVIDER?.toLowerCase();
   if (provider === "openai" || (!provider && !process.env.ANTHROPIC_API_KEY)) {
-    return process.env.OPENAI_API_KEY ? openai(process.env.LLM_MODEL || "gpt-5") : null;
+    return process.env.OPENAI_API_KEY
+      ? openai(process.env.LLM_MODEL || "gpt-5")
+      : null;
   }
-  return process.env.ANTHROPIC_API_KEY ? anthropic(process.env.LLM_MODEL || "claude-sonnet-5-5") : null;
+  return process.env.ANTHROPIC_API_KEY
+    ? anthropic(process.env.LLM_MODEL || "claude-sonnet-5-5")
+    : null;
 }
 
-const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+const delay = (ms: number): Promise<void> =>
+  new Promise((r) => setTimeout(r, ms));
 
-const truncate = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+const truncate = (s: string, n: number): string =>
+  s.length > n ? `${s.slice(0, n - 1)}…` : s;
 
 function hostOf(url: string): string {
   try {

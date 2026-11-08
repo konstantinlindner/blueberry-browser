@@ -8,7 +8,9 @@ export interface PageSnapshot {
   text: string;
 }
 
-export type ElementResult = { ok: true; kind?: "text" | "select" } | { ok: false; error: string };
+export type ElementResult =
+  | { ok: true; kind?: "text" | "select" }
+  | { ok: false; error: string };
 
 const MAX_ELEMENTS = 150;
 const MAX_TEXT = 4000;
@@ -96,7 +98,10 @@ export const scroll = (direction: "up" | "down"): string =>
 
 // Deterministic safety net: returns a reason if acting on this element should
 // need the user's approval, regardless of whether the model asked.
-export const sensitiveReason = (ref: number, action: "click" | "type"): string => `(() => {
+export const sensitiveReason = (
+  ref: number,
+  action: "click" | "type",
+): string => `(() => {
   const el = document.querySelector('[data-bb-ref="${ref}"]');
   if (!el) return null;
   const form = el.closest('form');

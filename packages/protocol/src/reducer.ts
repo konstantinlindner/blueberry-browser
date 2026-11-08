@@ -1,6 +1,16 @@
-import type { AgentEvent, AgentState, Task, TaskStatus, TimelineItem } from "./messages";
+import type {
+  AgentEvent,
+  AgentState,
+  Task,
+  TaskStatus,
+  TimelineItem,
+} from "./messages";
 
-export const initialState: AgentState = { tasks: {}, order: [], activeTaskId: null };
+export const initialState: AgentState = {
+  tasks: {},
+  order: [],
+  activeTaskId: null,
+};
 
 export const isTerminal = (status: TaskStatus): boolean =>
   status === "done" || status === "failed" || status === "cancelled";
@@ -44,13 +54,21 @@ export function reduce(state: AgentState, event: AgentEvent): AgentState {
     case "text":
       return withTask(state, {
         ...task,
-        timeline: upsert(task.timeline, { type: "agent", id: event.id, text: event.text }),
+        timeline: upsert(task.timeline, {
+          type: "agent",
+          id: event.id,
+          text: event.text,
+        }),
       });
 
     case "user.message":
       return withTask(state, {
         ...task,
-        timeline: upsert(task.timeline, { type: "user", id: event.id, text: event.text }),
+        timeline: upsert(task.timeline, {
+          type: "user",
+          id: event.id,
+          text: event.text,
+        }),
       });
 
     case "approval.requested":
@@ -72,7 +90,9 @@ export function reduce(state: AgentState, event: AgentEvent): AgentState {
         ...task,
         status: task.status === "waiting" ? "running" : task.status,
         pendingApproval:
-          task.pendingApproval?.id === event.approvalId ? null : task.pendingApproval,
+          task.pendingApproval?.id === event.approvalId
+            ? null
+            : task.pendingApproval,
         timeline:
           item?.type === "approval"
             ? upsert(task.timeline, { ...item, approved: event.approved })
@@ -89,7 +109,11 @@ function withTask(state: AgentState, task: Task): AgentState {
   return { ...state, tasks: { ...state.tasks, [task.id]: task } };
 }
 
-function withStatus(state: AgentState, task: Task, status: TaskStatus): AgentState {
+function withStatus(
+  state: AgentState,
+  task: Task,
+  status: TaskStatus,
+): AgentState {
   const terminal = isTerminal(status);
   const next = withTask(state, {
     ...task,
@@ -98,7 +122,9 @@ function withStatus(state: AgentState, task: Task, status: TaskStatus): AgentSta
     pendingApproval: terminal ? null : task.pendingApproval,
   });
   if (terminal) {
-    return next.activeTaskId === task.id ? { ...next, activeTaskId: null } : next;
+    return next.activeTaskId === task.id
+      ? { ...next, activeTaskId: null }
+      : next;
   }
   return { ...next, activeTaskId: task.id };
 }

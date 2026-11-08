@@ -1,4 +1,9 @@
-import { initialState, reduce, type AgentEvent, type AgentState } from "@blueberry/protocol";
+import {
+  initialState,
+  reduce,
+  type AgentEvent,
+  type AgentState,
+} from "@blueberry/protocol";
 
 type Listener = (event: AgentEvent, state: AgentState) => void;
 

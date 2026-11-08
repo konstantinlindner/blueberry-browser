@@ -4,7 +4,13 @@ import { z } from "zod";
 // State — what both the desktop and the phone hold, built by `reduce()`
 // ---------------------------------------------------------------------------
 
-export const TaskStatusSchema = z.enum(["running", "waiting", "done", "failed", "cancelled"]);
+export const TaskStatusSchema = z.enum([
+  "running",
+  "waiting",
+  "done",
+  "failed",
+  "cancelled",
+]);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
 export const StepStatusSchema = z.enum(["running", "ok", "error"]);
@@ -62,9 +68,17 @@ export type AgentState = z.infer<typeof AgentStateSchema>;
 export const AgentEventSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("task.created"),
-    task: z.object({ id: z.string(), prompt: z.string(), createdAt: z.number() }),
+    task: z.object({
+      id: z.string(),
+      prompt: z.string(),
+      createdAt: z.number(),
+    }),
   }),
-  z.object({ kind: z.literal("task.status"), taskId: z.string(), status: TaskStatusSchema }),
+  z.object({
+    kind: z.literal("task.status"),
+    taskId: z.string(),
+    status: TaskStatusSchema,
+  }),
   // Sent when a step starts and again when it finishes, upserted by stepId
   z.object({
     kind: z.literal("step"),
@@ -74,8 +88,18 @@ export const AgentEventSchema = z.discriminatedUnion("kind", [
     summary: z.string(),
     status: StepStatusSchema,
   }),
-  z.object({ kind: z.literal("text"), taskId: z.string(), id: z.string(), text: z.string() }),
-  z.object({ kind: z.literal("user.message"), taskId: z.string(), id: z.string(), text: z.string() }),
+  z.object({
+    kind: z.literal("text"),
+    taskId: z.string(),
+    id: z.string(),
+    text: z.string(),
+  }),
+  z.object({
+    kind: z.literal("user.message"),
+    taskId: z.string(),
+    id: z.string(),
+    text: z.string(),
+  }),
   z.object({
     kind: z.literal("approval.requested"),
     taskId: z.string(),
@@ -87,7 +111,11 @@ export const AgentEventSchema = z.discriminatedUnion("kind", [
     approvalId: z.string(),
     approved: z.boolean(),
   }),
-  z.object({ kind: z.literal("task.finished"), taskId: z.string(), summary: z.string() }),
+  z.object({
+    kind: z.literal("task.finished"),
+    taskId: z.string(),
+    summary: z.string(),
+  }),
 ]);
 export type AgentEvent = z.infer<typeof AgentEventSchema>;
 
@@ -96,10 +124,22 @@ export type AgentEvent = z.infer<typeof AgentEventSchema>;
 // ---------------------------------------------------------------------------
 
 export const ClientMessageSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("hello"), token: z.string(), deviceName: z.string() }),
-  z.object({ type: z.literal("task.start"), prompt: z.string().min(1), startUrl: z.string().optional() }),
+  z.object({
+    type: z.literal("hello"),
+    token: z.string(),
+    deviceName: z.string(),
+  }),
+  z.object({
+    type: z.literal("task.start"),
+    prompt: z.string().min(1),
+    startUrl: z.string().optional(),
+  }),
   z.object({ type: z.literal("task.cancel"), taskId: z.string() }),
-  z.object({ type: z.literal("task.message"), taskId: z.string(), text: z.string().min(1) }),
+  z.object({
+    type: z.literal("task.message"),
+    taskId: z.string(),
+    text: z.string().min(1),
+  }),
   z.object({
     type: z.literal("approval.respond"),
     approvalId: z.string(),
@@ -113,7 +153,11 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("snapshot"), state: AgentStateSchema }),
   z.object({ type: z.literal("event"), event: AgentEventSchema }),
   // Latest frame wins; never part of state
-  z.object({ type: z.literal("frame"), taskId: z.string(), jpegBase64: z.string() }),
+  z.object({
+    type: z.literal("frame"),
+    taskId: z.string(),
+    jpegBase64: z.string(),
+  }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessageSchema>;
@@ -122,7 +166,9 @@ export type ServerMessage = z.infer<typeof ServerMessageSchema>;
 // Boundary parsing
 // ---------------------------------------------------------------------------
 
-export type ParseResult<T> = { ok: true; data: T } | { ok: false; error: string };
+export type ParseResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string };
 
 function parseWith<T>(schema: z.ZodType<T>, raw: string): ParseResult<T> {
   let json: unknown;

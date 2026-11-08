@@ -45,7 +45,7 @@ blueberry-browser/
 ```
 
 Not changed: the sidebar, `LLMClient`, IPC/preload, topbar, layout code.
-(Expo + pnpm: may need `node-linker=hoisted` in `.npmrc` for Metro.)
+(pnpm isolated installs, so the Expo app's React 19.3 and the renderer's React 19.1 never mix.)
 
 ## 3. Protocol (`packages/protocol`)
 

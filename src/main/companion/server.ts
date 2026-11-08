@@ -5,7 +5,11 @@ import { networkInterfaces } from "os";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
 import { WebSocketServer, type WebSocket } from "ws";
-import { parseClientMessage, type ClientMessage, type ServerMessage } from "@blueberry/protocol";
+import {
+  parseClientMessage,
+  type ClientMessage,
+  type ServerMessage,
+} from "@blueberry/protocol";
 import type { Window } from "../Window";
 import { Agent } from "./agent";
 import { CompanionStore } from "./store";
@@ -31,7 +35,8 @@ export function startCompanion(window: Window): Companion {
   const send = (socket: WebSocket, message: ServerMessage): void => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
   };
-  const broadcast = (message: ServerMessage): void => clients.forEach((s) => send(s, message));
+  const broadcast = (message: ServerMessage): void =>
+    clients.forEach((s) => send(s, message));
 
   // ---------------------------------------------------------------------------
   // Live frames: after every finished step, plus a steady tick while a task runs
@@ -47,11 +52,15 @@ export function startCompanion(window: Window): Companion {
     try {
       const image = await tab.screenshot();
       if (image.isEmpty()) return;
-      const jpegBase64 = image.resize({ width: FRAME_WIDTH }).toJPEG(FRAME_QUALITY).toString("base64");
+      const jpegBase64 = image
+        .resize({ width: FRAME_WIDTH })
+        .toJPEG(FRAME_QUALITY)
+        .toString("base64");
       if (jpegBase64 === lastFrame) return;
       lastFrame = jpegBase64;
       for (const socket of clients) {
-        if (socket.bufferedAmount < MAX_BUFFERED_BYTES) send(socket, { type: "frame", taskId, jpegBase64 });
+        if (socket.bufferedAmount < MAX_BUFFERED_BYTES)
+          send(socket, { type: "frame", taskId, jpegBase64 });
       }
     } catch (error) {
       console.error("Companion frame capture failed:", error);
@@ -67,7 +76,8 @@ export function startCompanion(window: Window): Companion {
   const unsubscribe = store.subscribe((event) => {
     broadcast({ type: "event", event });
     if (event.kind === "step" && event.status !== "running") void sendFrame();
-    if (event.kind === "task.finished" || event.kind === "task.status") void sendFrame();
+    if (event.kind === "task.finished" || event.kind === "task.status")
+      void sendFrame();
   });
 
   // ---------------------------------------------------------------------------
@@ -85,7 +95,11 @@ export function startCompanion(window: Window): Companion {
       case "task.message":
         return agent.message(message.taskId, message.text);
       case "approval.respond":
-        return agent.respondApproval(message.approvalId, message.approved, message.note);
+        return agent.respondApproval(
+          message.approvalId,
+          message.approved,
+          message.note,
+        );
     }
   };
 
@@ -93,11 +107,15 @@ export function startCompanion(window: Window): Companion {
 
   server.on("connection", (socket, request) => {
     let authed = false;
-    const helloTimer = setTimeout(() => socket.close(4001, "Expected hello"), HELLO_TIMEOUT_MS);
+    const helloTimer = setTimeout(
+      () => socket.close(4001, "Expected hello"),
+      HELLO_TIMEOUT_MS,
+    );
 
     socket.on("message", (data) => {
       const parsed = parseClientMessage(data.toString());
-      if (!parsed.ok) return send(socket, { type: "error", message: parsed.error });
+      if (!parsed.ok)
+        return send(socket, { type: "error", message: parsed.error });
       const message = parsed.data;
 
       if (!authed) {
@@ -108,7 +126,9 @@ export function startCompanion(window: Window): Companion {
         authed = true;
         clearTimeout(helloTimer);
         clients.add(socket);
-        console.log(`📱 Companion connected: ${message.deviceName} (${request.socket.remoteAddress})`);
+        console.log(
+          `📱 Companion connected: ${message.deviceName} (${request.socket.remoteAddress})`,
+        );
         send(socket, { type: "snapshot", state: store.state });
         lastFrame = ""; // make sure the new client gets a frame
         void sendFrame();
@@ -118,7 +138,10 @@ export function startCompanion(window: Window): Companion {
       try {
         handle(message);
       } catch (error) {
-        send(socket, { type: "error", message: error instanceof Error ? error.message : String(error) });
+        send(socket, {
+          type: "error",
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
     });
 
@@ -126,11 +149,15 @@ export function startCompanion(window: Window): Companion {
       clearTimeout(helloTimer);
       clients.delete(socket);
     });
-    socket.on("error", (error) => console.error("Companion socket error:", error));
+    socket.on("error", (error) =>
+      console.error("Companion socket error:", error),
+    );
   });
 
   server.on("listening", () => printPairingCode(token));
-  server.on("error", (error) => console.error("Companion server error:", error));
+  server.on("error", (error) =>
+    console.error("Companion server error:", error),
+  );
 
   return {
     stop() {
@@ -160,10 +187,15 @@ function loadToken(): string {
 
 function lanAddress(): string {
   const candidates = Object.entries(networkInterfaces())
-    .flatMap(([name, addresses]) => (addresses ?? []).map((a) => ({ name, ...a })))
+    .flatMap(([name, addresses]) =>
+      (addresses ?? []).map((a) => ({ name, ...a })),
+    )
     .filter((a) => a.family === "IPv4" && !a.internal);
   // Prefer Wi-Fi/Ethernet over VPN and bridge interfaces
-  return (candidates.find((a) => a.name.startsWith("en")) ?? candidates[0])?.address ?? "127.0.0.1";
+  return (
+    (candidates.find((a) => a.name.startsWith("en")) ?? candidates[0])
+      ?.address ?? "127.0.0.1"
+  );
 }
 
 function printPairingCode(token: string): void {
