@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import * as dotenv from "dotenv";
 import {
@@ -10,15 +11,14 @@ import {
   type ModelMessage,
   type ToolSet,
 } from "ai";
+import { net } from "electron";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { openai } from "@ai-sdk/openai";
+import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 import type { Window } from "../Window";
 import type { Tab } from "../Tab";
 import type { CompanionStore } from "./store";
 import * as page from "./pageScripts";
-
-dotenv.config({ path: join(__dirname, "../../.env") });
 
 const MAX_STEPS = 30;
 const LOAD_TIMEOUT_MS = 10_000;
@@ -473,26 +473,39 @@ export class Agent {
   }
 }
 
+// Config comes only from the repo's .env, never from the shell environment.
+// Parsed directly instead of dotenv.config(), which would merge into process.env
+// and let exported shell variables win.
+function readDotEnv(): Record<string, string> {
+  const file = join(__dirname, "../../.env");
+  return existsSync(file) ? dotenv.parse(readFileSync(file)) : {};
+}
+
+// Chromium's network stack instead of Node's fetch: it trusts the OS certificate
+// store (e.g. a company gateway's internal CA) and honors system proxy settings.
+const systemFetch = net.fetch as unknown as typeof globalThis.fetch;
+
 function createModel(): LanguageModel | null {
-  // Same variables Claude Code uses, so a gateway/proxy setup works unchanged
-  const anthropicKey =
-    process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
-  const provider = process.env.LLM_PROVIDER?.toLowerCase();
+  const env = readDotEnv();
+  const anthropicKey = env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN;
+  const provider = env.LLM_PROVIDER?.toLowerCase();
 
   if (provider === "openai" || (!provider && !anthropicKey)) {
-    return process.env.OPENAI_API_KEY
-      ? openai(process.env.LLM_MODEL || "gpt-5")
-      : null;
+    if (!env.OPENAI_API_KEY) return null;
+    return createOpenAI({ apiKey: env.OPENAI_API_KEY, fetch: systemFetch })(
+      env.LLM_MODEL || "gpt-5",
+    );
   }
   if (!anthropicKey) return null;
 
-  const baseURL = process.env.ANTHROPIC_BASE_URL?.replace(/\/+$/, "");
+  const baseURL = env.ANTHROPIC_BASE_URL?.replace(/\/+$/, "");
   const anthropic = createAnthropic({
     apiKey: anthropicKey,
+    fetch: systemFetch,
     // The SDK expects the /v1 prefix; ANTHROPIC_BASE_URL conventionally omits it
     baseURL: baseURL ? `${baseURL}/v1` : undefined,
   });
-  return anthropic(process.env.LLM_MODEL || "claude-sonnet-5-5");
+  return anthropic(env.LLM_MODEL || "claude-sonnet-5-5");
 }
 
 const delay = (ms: number): Promise<void> =>
