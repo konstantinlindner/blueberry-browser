@@ -4,7 +4,8 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    // Workspace packages ship TS source, so bundle them instead of requiring at runtime
+    plugins: [externalizeDepsPlugin({ exclude: ["@blueberry/protocol"] })],
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
