@@ -1,13 +1,7 @@
 import { WebContents } from "electron";
 import { streamText, type LanguageModel, type CoreMessage } from "ai";
-import { openai } from "@ai-sdk/openai";
-import { anthropic } from "@ai-sdk/anthropic";
-import * as dotenv from "dotenv";
-import { join } from "path";
 import type { Window } from "./Window";
-
-// Load environment variables from .env file
-dotenv.config({ path: join(__dirname, "../../.env") });
+import { createModel } from "./llm";
 
 interface ChatRequest {
   message: string;
@@ -19,86 +13,33 @@ interface StreamChunk {
   isComplete: boolean;
 }
 
-type LLMProvider = "openai" | "anthropic";
-
-const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  openai: "gpt-4o-mini",
-  anthropic: "claude-3-5-sonnet-20241022",
-};
-
 const MAX_CONTEXT_LENGTH = 4000;
 const DEFAULT_TEMPERATURE = 0.7;
 
 export class LLMClient {
   private readonly webContents: WebContents;
   private window: Window | null = null;
-  private readonly provider: LLMProvider;
-  private readonly modelName: string;
   private readonly model: LanguageModel | null;
   private messages: CoreMessage[] = [];
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
-    this.provider = this.getProvider();
-    this.modelName = this.getModelName();
-    this.model = this.initializeModel();
+    const configured = createModel();
+    this.model = configured?.model ?? null;
 
-    this.logInitializationStatus();
+    if (configured) {
+      console.log(`✅ LLM Client initialized with ${configured.label}`);
+    } else {
+      console.error(
+        "❌ LLM Client initialization failed: no API key in .env.\n" +
+          "Set ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) or OPENAI_API_KEY in the .env file in the project root."
+      );
+    }
   }
 
   // Set the window reference after construction to avoid circular dependencies
   setWindow(window: Window): void {
     this.window = window;
-  }
-
-  private getProvider(): LLMProvider {
-    const provider = process.env.LLM_PROVIDER?.toLowerCase();
-    if (provider === "anthropic") return "anthropic";
-    return "openai"; // Default to OpenAI
-  }
-
-  private getModelName(): string {
-    return process.env.LLM_MODEL || DEFAULT_MODELS[this.provider];
-  }
-
-  private initializeModel(): LanguageModel | null {
-    const apiKey = this.getApiKey();
-    if (!apiKey) return null;
-
-    switch (this.provider) {
-      case "anthropic":
-        return anthropic(this.modelName);
-      case "openai":
-        return openai(this.modelName);
-      default:
-        return null;
-    }
-  }
-
-  private getApiKey(): string | undefined {
-    switch (this.provider) {
-      case "anthropic":
-        return process.env.ANTHROPIC_API_KEY;
-      case "openai":
-        return process.env.OPENAI_API_KEY;
-      default:
-        return undefined;
-    }
-  }
-
-  private logInitializationStatus(): void {
-    if (this.model) {
-      console.log(
-        `✅ LLM Client initialized with ${this.provider} provider using model: ${this.modelName}`
-      );
-    } else {
-      const keyName =
-        this.provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
-      console.error(
-        `❌ LLM Client initialization failed: ${keyName} not found in environment variables.\n` +
-          `Please add your API key to the .env file in the project root.`
-      );
-    }
   }
 
   async sendChatMessage(request: ChatRequest): Promise<void> {
