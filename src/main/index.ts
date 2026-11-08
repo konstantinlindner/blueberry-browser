@@ -3,15 +3,19 @@ import { electronApp } from "@electron-toolkit/utils";
 import { Window } from "./Window";
 import { AppMenu } from "./Menu";
 import { EventManager } from "./EventManager";
+import { startCompanion, type Companion } from "./companion/server";
 
 let mainWindow: Window | null = null;
 let eventManager: EventManager | null = null;
 let menu: AppMenu | null = null;
+let companion: Companion | null = null;
 
 const createWindow = (): Window => {
   const window = new Window();
   menu = new AppMenu(window);
   eventManager = new EventManager(window);
+  companion?.stop();
+  companion = startCompanion(window);
   return window;
 };
 
@@ -30,6 +34,9 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  companion?.stop();
+  companion = null;
+
   if (eventManager) {
     eventManager.cleanup();
     eventManager = null;
